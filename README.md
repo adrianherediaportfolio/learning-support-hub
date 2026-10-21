@@ -79,7 +79,7 @@ To run Easy Read Adapter from the sibling repository, use its Compose profile:
 ADAPTER_URL=http://adapter:8000 docker compose --profile adapter up --build
 ```
 
-The profile builds `../easy-read-adapter/backend` and exposes the adapter on `http://localhost:8002`. The Learning Support Hub backend reaches it at `http://adapter:8000`.
+The profile builds `../easy-read-adapter/backend` and exposes the adapter on `http://localhost:8002`. The Learning Support Hub backend reaches it at `http://adapter:8000`. The adapter response uses contract version 2 pictogram objects and attribution lists.
 
 ## Configuration
 
@@ -93,6 +93,7 @@ The profile builds `../easy-read-adapter/backend` and exposes the adapter on `ht
 | `OPENAI_MODEL` | OpenAI model name. Defaults to `gpt-4o-mini`. |
 | `ADAPTER_URL` | Optional Easy Read Adapter base URL. Blank disables material adaptation. |
 | `ADAPTER_API_KEY` | Optional `X-API-Key` value for the adapter. |
+| `ADAPTER_PUBLIC_BASE_URL` | Browser-facing adapter URL for pictogram assets. Defaults to `http://localhost:8002`. |
 | `PRACTICE_NAME` | Name printed at the top of exported reports. |
 | `CORS_ORIGINS` | Comma-separated list of trusted browser origins. |
 | `VITE_API_URL` | API origin compiled into the frontend. |
@@ -142,7 +143,7 @@ This application stores personal information about minors. A practice must set i
 
 Each record is scoped to its professional owner. Use a long, private `SECRET_KEY` and protect SQLite backups. Without `OPENAI_API_KEY`, family report drafts are written locally. When OpenAI is enabled, a report request sends the student's first name, goal areas and descriptions, session dates, and progress ratings or comments. It does not send surname, guardian contact details, school, birth date, or private notes. Review every draft before sharing it.
 
-When Easy Read Adapter is configured, the material's original text is sent to that service. If pictograms are enabled there, selected words may be sent to ARASAAC.
+When Easy Read Adapter is configured, the material's original text is sent to that service. Its default local pictogram chain supports commercial use. ARASAAC is opt-in there, uses CC BY-NC-SA 4.0, and is non-commercial. Stored materials keep the v2 attribution list and can still render old `arasaac_id` records.
 
 ## Compatibility
 

@@ -115,8 +115,23 @@ def test_material_adapter_sends_contract_and_stores_response(tmp_path, monkeypat
             json={
                 "id": "adapt-1",
                 "adapted_text": "La niña lee.",
-                "sentences": [{"text": "La niña lee.", "pictograms": []}],
-                "attribution": "Atribución de prueba.",
+                "sentences": [
+                    {
+                        "text": "La niña lee.",
+                        "pictograms": [
+                            {
+                                "keyword": "niña",
+                                "source": "own",
+                                "id": "nina",
+                                "image_url": "http://localhost:8000/pictograms/own/nina.svg",
+                                "license": "proprietary",
+                                "commercial_use": True,
+                            }
+                        ],
+                    }
+                ],
+                "attributions": [],
+                "attribution": "",
             },
         )
     )
@@ -139,6 +154,8 @@ def test_material_adapter_sends_contract_and_stores_response(tmp_path, monkeypat
         assert response.json()["adapted_text"] == "La niña lee."
         assert response.json()["adaptation_id"] == "adapt-1"
         assert response.json()["sentences"][0]["text"] == "La niña lee."
+        assert response.json()["sentences"][0]["pictograms"][0]["source"] == "own"
+        assert response.json()["attributions"] == []
         request = route.calls[0].request
         assert request.headers["X-API-Key"] == "shared-key"
         assert request.read() == (

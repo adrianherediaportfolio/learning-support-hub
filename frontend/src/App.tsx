@@ -57,13 +57,14 @@ type SessionRecord = {
   goal_progress: Progress[]
 }
 type AgendaRow = { session: SessionRecord; student_first_name: string; student_last_name: string }
-type Sentence = { text: string; pictograms: { keyword: string; arasaac_id: number; image_url: string }[] }
+type Sentence = { text: string; pictograms: { keyword: string; source: string; id: string; image_url: string; license: string; commercial_use: boolean }[] }
 type Material = {
   id: number
   title: string
   original_text: string
   adapted_text: string | null
   sentences: Sentence[]
+  attributions: string[]
   attribution: string | null
 }
 type Report = { id: number; start_date: string; end_date: string; body: string }
@@ -92,8 +93,6 @@ const navigation: { label: Section; icon: typeof Home }[] = [
   { label: 'Agenda', icon: CalendarDays },
   { label: 'Informes', icon: FileText },
 ]
-const attribution =
-  'Pictogramas: Sergio Palao. Origen: ARASAAC (http://www.arasaac.org). Licencia: CC (BY-NC-SA). Propiedad: Gobierno de Aragón (España)'
 const chartColors = ['#4F7D63', '#E07A5F', '#6889A1', '#8C76A7', '#C39138']
 
 function formatDate(value: string, options: Intl.DateTimeFormatOptions = { dateStyle: 'medium' }) {
@@ -413,7 +412,7 @@ function App() {
                 <div><p className="eyebrow">Tu espacio de hoy</p><h1>Buenos días, equipo.</h1><p>Una vista tranquila para planificar y acompañar cada avance.</p></div>
                 <svg viewBox="0 0 220 160" aria-hidden="true"><circle cx="160" cy="45" r="24" fill="#FBEFC9" /><path d="M30 137c18-44 52-70 83-70s65 26 83 70" fill="#DDF0E4" /><path d="M71 134V91h84v43M93 91V67h40v24" fill="none" stroke="#4F7D63" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" /><path d="M111 107v27M87 107h16M127 107h16" stroke="#E07A5F" strokeWidth="5" strokeLinecap="round" /></svg>
               </section>
-              <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Resumen">
+              <section className="grid grid-cols-2 gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Resumen">
                 <div className="summary-card summary-sky"><span><CalendarDays size={19} /></span><strong>{dashboard?.today_sessions.length ?? 0}</strong><small>Sesiones hoy</small></div>
                 <div className="summary-card summary-lilac"><span><Target size={19} /></span><strong>{dashboard?.active_goal_count ?? 0}</strong><small>Objetivos activos</small></div>
                 <div className="summary-card summary-butter"><span><ClipboardCheck size={19} /></span><strong>{dashboard?.pending_consent_count ?? 0}</strong><small>Consentimientos pendientes</small></div>
@@ -517,7 +516,7 @@ function App() {
                   </div>}
                   {tab === 'Materiales' && <div className="space-y-4">
                     <form className="panel grid gap-3" onSubmit={(event) => void createRecord(event, `/api/students/${selected.id}/materials`)}><h3>Materiales de trabajo</h3><input name="title" className="field" placeholder="Título del material" required /><textarea name="original_text" className="field min-h-28" placeholder="Texto original" required /><button className="button-primary justify-self-start" type="submit">Guardar material</button></form>
-                    {materials.map((material) => <article key={material.id} className="panel"><div className="flex flex-wrap items-center justify-between gap-3"><h3>{material.title}</h3>{adapterEnabled && <button className="button-secondary" onClick={() => void adaptMaterial(material.id)}>Adaptar texto</button>}</div><p className="mt-3 whitespace-pre-wrap muted">{material.adapted_text ?? material.original_text}</p>{material.sentences?.map((sentence, index) => <div key={`${material.id}-${index}`} className="sentence-card mt-3"><div className="mb-2 flex flex-wrap gap-2">{sentence.pictograms.map((pictogram) => <img key={pictogram.arasaac_id} src={pictogram.image_url} alt={pictogram.keyword} className="h-16 w-16 object-contain" />)}</div><p>{sentence.text}</p></div>)}{material.adapted_text && <p className="attribution mt-3">{material.attribution || attribution}</p>}</article>)}
+                    {materials.map((material) => <article key={material.id} className="panel"><div className="flex flex-wrap items-center justify-between gap-3"><h3>{material.title}</h3>{adapterEnabled && <button className="button-secondary" onClick={() => void adaptMaterial(material.id)}>Adaptar texto</button>}</div><p className="mt-3 whitespace-pre-wrap muted">{material.adapted_text ?? material.original_text}</p>{material.sentences?.map((sentence, index) => <div key={`${material.id}-${index}`} className="sentence-card mt-3"><div className="mb-2 flex flex-wrap gap-2">{sentence.pictograms.map((pictogram) => <img key={`${pictogram.source}-${pictogram.id}`} src={pictogram.image_url} alt={pictogram.keyword} className="h-16 w-16 object-contain" />)}</div><p>{sentence.text}</p></div>)}{material.attributions?.length > 0 && <div className="attribution mt-3"><p className="font-bold">Fuentes de los pictogramas</p><ul className="list-disc pl-5">{material.attributions.map((item) => <li key={item}>{item}</li>)}</ul></div>}</article>)}
                     {!adapterEnabled && <p className="muted">La adaptación de textos no está configurada en este entorno.</p>}
                   </div>}
                   {tab === 'Informes' && <div className="grid gap-5 xl:grid-cols-[260px_1fr]">

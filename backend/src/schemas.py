@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 
 class UserInput(BaseModel):
@@ -132,7 +132,59 @@ class MaterialOutput(BaseModel):
     adaptation_id: str | None
     adapter_url: str | None
     sentences: list[dict]
+    attributions: list[str]
     attribution: str | None
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_pictograms(cls, value):
+        data = (
+            dict(value)
+            if isinstance(value, dict)
+            else {
+                field: getattr(value, field, None)
+                for field in (
+                    "id",
+                    "student_id",
+                    "title",
+                    "original_text",
+                    "adapted_text",
+                    "adaptation_id",
+                    "adapter_url",
+                    "sentences",
+                    "attributions",
+                    "attribution",
+                )
+            }
+        )
+        normalized_sentences = []
+        for sentence in data.get("sentences") or []:
+            pictograms = []
+            for pictogram in sentence.get("pictograms", []):
+                if "source" in pictogram:
+                    pictograms.append(pictogram)
+                    continue
+                legacy_id = pictogram.get("arasaac_id")
+                if legacy_id is None:
+                    continue
+                pictograms.append(
+                    {
+                        "keyword": pictogram.get("keyword", ""),
+                        "source": "arasaac",
+                        "id": str(legacy_id),
+                        "image_url": pictogram.get("image_url", ""),
+                        "license": "CC BY-NC-SA 4.0",
+                        "commercial_use": False,
+                    }
+                )
+            normalized_sentences.append(
+                {"text": sentence.get("text", ""), "pictograms": pictograms}
+            )
+        data["sentences"] = normalized_sentences
+        data["attributions"] = data.get("attributions") or (
+            [data["attribution"]] if data.get("attribution") else []
+        )
+        return data
 
 
 class ReportInput(BaseModel):

@@ -87,4 +87,5 @@ class Material(Base):
     adaptation_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     adapter_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     sentences: Mapped[list] = mapped_column(JSON, default=list)
+    attributions: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
     attribution: Mapped[str | None] = mapped_column(Text, nullable=True)

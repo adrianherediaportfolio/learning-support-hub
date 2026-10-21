@@ -19,6 +19,8 @@ services:
       - adapter
     build:
       context: ../easy-read-adapter/backend
+    environment:
+      PUBLIC_BASE_URL: ${ADAPTER_PUBLIC_BASE_URL:-http://localhost:8002}
     ports:
       - "8002:8000"
   frontend:

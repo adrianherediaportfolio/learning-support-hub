@@ -79,7 +79,7 @@ Para ejecutar Easy Read Adapter desde el repositorio hermano, usa su perfil de C
 ADAPTER_URL=http://adapter:8000 docker compose --profile adapter up --build
 ```
 
-El perfil construye `../easy-read-adapter/backend` y publica el adaptador en `http://localhost:8002`. El backend de Learning Support Hub lo alcanza en `http://adapter:8000`.
+El perfil construye `../easy-read-adapter/backend` y publica el adaptador en `http://localhost:8002`. El backend de Learning Support Hub lo alcanza en `http://adapter:8000`. La respuesta usa los objetos de pictogramas y las atribuciones de la versión 2 del contrato.
 
 ## Configuración
 
@@ -93,6 +93,7 @@ El perfil construye `../easy-read-adapter/backend` y publica el adaptador en `ht
 | `OPENAI_MODEL` | Modelo de OpenAI. El valor inicial es `gpt-4o-mini`. |
 | `ADAPTER_URL` | URL base opcional de Easy Read Adapter. Vacía, desactiva la adaptación. |
 | `ADAPTER_API_KEY` | Valor opcional de `X-API-Key` para el adaptador. |
+| `ADAPTER_PUBLIC_BASE_URL` | URL del adaptador accesible desde el navegador para las imágenes. El valor inicial es `http://localhost:8002`. |
 | `PRACTICE_NAME` | Nombre que aparece en los informes PDF. |
 | `CORS_ORIGINS` | Lista de orígenes web permitidos, separados por comas. |
 | `VITE_API_URL` | Origen de la API incluido en la build del frontend. |
@@ -142,7 +143,7 @@ La aplicación guarda datos personales de menores. Antes de usarla con fichas re
 
 Cada ficha está vinculada a su profesional. Usa un `SECRET_KEY` privado y largo, y protege las copias SQLite. Sin `OPENAI_API_KEY`, los borradores se redactan localmente. Si OpenAI está activado, la solicitud incluye el nombre de pila, las áreas y descripciones de objetivos, las fechas de sesión y las valoraciones o comentarios de progreso. No incluye apellidos, contactos familiares, centro educativo, fecha de nacimiento ni notas privadas. Revisa cada borrador antes de compartirlo.
 
-Si se configura Easy Read Adapter, se envía a ese servicio el texto original del material. Si allí se activan los pictogramas, algunas palabras pueden enviarse a ARASAAC.
+Si se configura Easy Read Adapter, se envía a ese servicio el texto original del material. Su cadena local predeterminada permite uso comercial. ARASAAC es opcional, usa CC BY-NC-SA 4.0 y no permite uso comercial. Los materiales guardan la lista de atribuciones de la versión 2 y siguen mostrando registros antiguos con `arasaac_id`.
 
 ## Compatibilidad
 

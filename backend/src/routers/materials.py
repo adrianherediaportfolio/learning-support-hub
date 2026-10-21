@@ -67,7 +67,8 @@ async def adapt_material(
     material.adaptation_id = result["id"]
     material.adapter_url = base_url
     material.sentences = result["sentences"]
-    material.attribution = result["attribution"]
+    material.attributions = result.get("attributions", [])
+    material.attribution = result.get("attribution", "")
     database.commit()
     database.refresh(material)
     return material

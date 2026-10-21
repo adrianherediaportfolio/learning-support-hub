@@ -1,23 +1,36 @@
-# Shared API contract
+# Contrato API compartido
 
-`learning-support-hub` uses this contract to request text adaptations. Keep the request and response fields stable.
+**Versión 2**
+
+Este contrato define la integración entre `easy-read-adapter` y
+`learning-support-hub`.
+
+## Cambios de la versión 2
+
+- Los pictogramas identifican su fuente, licencia y uso comercial.
+- `arasaac_id` se sustituye por `source` e `id`.
+- La respuesta incluye la lista `attributions` y mantiene `attribution` para compatibilidad.
+- `/api/health` informa de la cadena configurada en `pictogram_providers`.
 
 ## Endpoints
 
 ```text
-POST /api/adaptations            (JSON)
-  request:  { "text": str (1..20000), "level": "lectura_facil" | "simplificado" (default "lectura_facil"),
-              "pictograms": bool (default true), "source": str | null (optional free label, e.g. "learning-support-hub") }
-POST /api/adaptations/upload     (multipart: file, level, pictograms)
-GET /api/adaptations             -> list of AdaptationSummary {id, created_at, level, preview}
-GET /api/adaptations/{id}        -> Adaptation
-DELETE /api/adaptations/{id}     -> 204
-GET /api/health                  -> {"status":"ok","ai_enabled":bool}
+POST /api/adaptations
+  request: { "text": str (1..20000), "level": "lectura_facil" | "simplificado",
+             "pictograms": bool, "source": str | null }
+POST /api/adaptations/upload
+GET /api/adaptations
+GET /api/adaptations/{id}
+DELETE /api/adaptations/{id}
+GET /api/health
+  -> {"status":"ok","ai_enabled":bool,"pictogram_providers":[str]}
 ```
 
-## Adaptation response
+Los valores por defecto son `level: "lectura_facil"` y `pictograms: true`.
 
-Create endpoints return `201`.
+## Respuesta de adaptación
+
+Las creaciones devuelven `201`.
 
 ```json
 {
@@ -32,9 +45,12 @@ Create endpoints return `201`.
       "text": "Texto adaptado.",
       "pictograms": [
         {
-          "keyword": "texto",
-          "arasaac_id": 1234,
-          "image_url": "https://static.arasaac.org/pictograms/1234/1234_300.png"
+          "keyword": "libro",
+          "source": "own",
+          "id": "libro",
+          "image_url": "http://localhost:8000/pictograms/own/libro.svg",
+          "license": "proprietary",
+          "commercial_use": true
         }
       ]
     }
@@ -44,8 +60,20 @@ Create endpoints return `201`.
     "adapted": {"score": 80.0, "label": "muy fácil"}
   },
   "engine": "rules",
-  "attribution": "Pictogramas: Sergio Palao. Origen: ARASAAC (http://www.arasaac.org). Licencia: CC (BY-NC-SA). Propiedad: Gobierno de Aragón (España)"
+  "attributions": [
+    "Mulberry Symbols de Steve Lee (mulberrysymbols.org). Licencia: CC BY-SA 4.0"
+  ],
+  "attribution": "Mulberry Symbols de Steve Lee (mulberrysymbols.org). Licencia: CC BY-SA 4.0"
 }
 ```
 
-`source` may be `null`. `engine` is `openai` or `rules`. Each sentence has zero or more pictograms. When `API_KEY` is configured, send it in the `X-API-Key` header. `/api/health` remains public.
+`source` puede ser `null`. `engine` es `openai` o `rules`. Cada frase puede
+tener cero o más pictogramas. `attributions` solo incluye las fuentes usadas,
+en el orden de la cadena. `attribution` une esos mismos valores con ` · ` y
+queda vacío cuando no se usa ninguna fuente con atribución.
+
+Fuentes válidas: `own`, `mulberry`, `openmoji` y `arasaac`. ARASAAC usa la
+licencia `CC BY-NC-SA 4.0` y `commercial_use: false`. Las otras fuentes
+incluidas en la cadena permiten uso comercial según su licencia.
+
+Cuando se configura `API_KEY`, envíala en `X-API-Key`. `/api/health` es público.
