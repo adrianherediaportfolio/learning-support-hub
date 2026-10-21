@@ -14,6 +14,13 @@ services:
       - "8001:8000"
     volumes:
       - support_data:/app/data
+  adapter:
+    profiles:
+      - adapter
+    build:
+      context: ../easy-read-adapter/backend
+    ports:
+      - "8002:8000"
   frontend:
     build:
       context: ./frontend
@@ -23,13 +30,6 @@ services:
       - backend
     ports:
       - "3001:80"
-
-# To run both projects, add this service under "services" and set ADAPTER_URL
-# on the backend to http://easy-read-adapter:8000:
-#  easy-read-adapter:
-#    build: ../easy-read-adapter
-#    ports:
-#      - "8002:8000"
 
 volumes:
   support_data:

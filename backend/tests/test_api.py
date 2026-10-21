@@ -1,4 +1,6 @@
+import asyncio
 from datetime import date, datetime, timedelta
+from types import SimpleNamespace
 
 import httpx
 import respx
@@ -9,6 +11,7 @@ from sqlalchemy.orm import sessionmaker
 from src.database import Base, get_db
 from src.main import app, report_context
 from src.models import Student
+from src.services import reports as report_service
 
 
 def client_for(path):
@@ -266,6 +269,139 @@ def test_report_fallback_is_editable_and_pdf_downloads(tmp_path, monkeypatch) ->
         assert pdf.headers["content-type"] == "application/pdf"
         assert pdf.content.startswith(b"%PDF")
         assert b"Gabinete de Prueba" in pdf.content
+    finally:
+        app.dependency_overrides.clear()
+        engine.dispose()
+
+
+def test_openai_exception_uses_local_report_template(monkeypatch) -> None:
+    from src.config import settings
+
+    class FailingCompletions:
+        async def create(self, **kwargs):
+            raise RuntimeError("Service unavailable")
+
+    class FakeClient:
+        def __init__(self, api_key: str) -> None:
+            self.chat = SimpleNamespace(completions=FailingCompletions())
+
+    monkeypatch.setattr(settings, "openai_api_key", "configured-key")
+    monkeypatch.setattr(report_service, "AsyncOpenAI", FakeClient)
+    context = {
+        "first_name": "Lucía",
+        "goals": [{"description": "Leer un párrafo", "status": "activo"}],
+        "sessions": [],
+    }
+
+    result = asyncio.run(report_service.draft_report(context))
+
+    assert "Hola, familia de Lucía" in result
+    assert "Leer un párrafo" in result
+
+
+def test_report_scrubber_removes_identifiers_and_contact_patterns() -> None:
+    student = Student(
+        first_name="Lucía",
+        last_name="Ejemplo",
+        guardian_name="María Ejemplo",
+        guardian_email="familia@example.com",
+        guardian_phone="600000001",
+        school="CEIP Los Olivos",
+    )
+    comment = (
+        "EJEMPLO, mARÍA eJEMPLO, FAMILIA@example.com, 600000001, "
+        "ceip los olivos, 699 123 456, contacto@prueba.net"
+    )
+
+    scrubbed = report_service.scrub_sensitive_text(comment, student)
+
+    for value in (
+        "Ejemplo",
+        "María Ejemplo",
+        "familia@example.com",
+        "600000001",
+        "CEIP Los Olivos",
+        "699 123 456",
+        "contacto@prueba.net",
+    ):
+        assert value.casefold() not in scrubbed.casefold()
+    assert scrubbed.count("[dato omitido]") >= 7
+
+
+def test_openai_prompt_uses_scrubbed_structured_report_data(tmp_path, monkeypatch) -> None:
+    from src.config import settings
+
+    captured = {}
+
+    class CapturingCompletions:
+        async def create(self, **kwargs):
+            captured["messages"] = kwargs["messages"]
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="Informe de prueba."))]
+            )
+
+    class FakeClient:
+        def __init__(self, api_key: str) -> None:
+            self.chat = SimpleNamespace(completions=CapturingCompletions())
+
+    client, engine = client_for(tmp_path / "prompt-privacy.db")
+    monkeypatch.setattr(settings, "openai_api_key", "configured-key")
+    monkeypatch.setattr(report_service, "AsyncOpenAI", FakeClient)
+    try:
+        token = register(client, "privacy@example.com")
+        headers = {"Authorization": f"Bearer {token}"}
+        student_id = client.post("/api/students", json=student_payload(), headers=headers).json()[
+            "id"
+        ]
+        goal_id = client.post(
+            f"/api/students/{student_id}/goals",
+            json={"area": "lectura", "description": "Leer un texto breve."},
+            headers=headers,
+        ).json()["id"]
+        client.post(
+            f"/api/students/{student_id}/sessions",
+            json={
+                "scheduled_at": "2025-04-12T10:00:00",
+                "status": "realizada",
+                "goal_progress": [
+                    {
+                        "goal_id": goal_id,
+                        "rating": 4,
+                        "comment": (
+                            "EJEMPLO; María Ejemplo; familia@example.com; 600000001; "
+                            "CEIP Los Olivos; 699 123 456; contacto@prueba.net"
+                        ),
+                    }
+                ],
+            },
+            headers=headers,
+        )
+        response = client.post(
+            f"/api/students/{student_id}/reports",
+            json={"start_date": "2025-01-01", "end_date": "2025-12-31"},
+            headers=headers,
+        )
+
+        assert response.status_code == 201
+        messages = captured["messages"]
+        assert messages[0]["role"] == "system"
+        assert "3 a 5 párrafos cortos" in messages[0]["content"]
+        assert messages[1]["role"] == "user"
+        assert "Objetivos:" in messages[1]["content"]
+        assert "Progreso fechado:" in messages[1]["content"]
+        prompt = "\n".join(message["content"] for message in messages)
+        assert f"Objetivo {goal_id}" in prompt
+        for value in (
+            "Ejemplo",
+            "María Ejemplo",
+            "familia@example.com",
+            "600000001",
+            "CEIP Los Olivos",
+            "699 123 456",
+            "contacto@prueba.net",
+        ):
+            assert value.casefold() not in prompt.casefold()
+        assert "[dato omitido]" in prompt
     finally:
         app.dependency_overrides.clear()
         engine.dispose()

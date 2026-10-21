@@ -73,7 +73,13 @@ docker compose up --build
 - Frontend: `http://localhost:3001`
 - API: `http://localhost:8001/docs`
 
-To connect a separately running Easy Read Adapter, set `ADAPTER_URL` in `.env` to its base URL. In a shared Compose network, use `http://easy-read-adapter:8000`. The commented section in `docker-compose.yml` shows where to add that service.
+To run Easy Read Adapter from the sibling repository, use its Compose profile:
+
+```bash
+ADAPTER_URL=http://adapter:8000 docker compose --profile adapter up --build
+```
+
+The profile builds `../easy-read-adapter/backend` and exposes the adapter on `http://localhost:8002`. The Learning Support Hub backend reaches it at `http://adapter:8000`.
 
 ## Configuration
 

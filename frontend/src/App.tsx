@@ -11,6 +11,16 @@ import {
   ShieldCheck,
   Users,
 } from 'lucide-react'
+import {
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
 
 import { api, downloadPdf, setToken } from './api'
 
@@ -31,6 +41,7 @@ type Student = {
 type Assessment = { id: number; assessed_at: string; areas: { area: string; score: number; observations: string }[] }
 type Goal = { id: number; area: string; description: string; status: string; target_date: string | null }
 type Progress = { goal_id: number; rating: number; comment: string }
+type GoalProgressPoint = Progress & { date: string }
 type SessionRecord = {
   id: number
   scheduled_at: string
@@ -98,7 +109,7 @@ function App() {
   const [sessions, setSessions] = useState<SessionRecord[]>([])
   const [materials, setMaterials] = useState<Material[]>([])
   const [reports, setReports] = useState<Report[]>([])
-  const [progress, setProgress] = useState<{ date: string; goal_id: number; rating: number; comment: string }[]>([])
+  const [progress, setProgress] = useState<GoalProgressPoint[]>([])
   const [editingReport, setEditingReport] = useState<Report | null>(null)
   const [agendaSessions, setAgendaSessions] = useState<{ session: SessionRecord; student_first_name: string; student_last_name: string }[]>([])
 
@@ -123,7 +134,7 @@ function App() {
         if (tab === 'Objetivos') {
           const [goalData, progressData] = await Promise.all([
             api<Goal[]>(`${path}/goals`),
-            api<typeof progress>(`${path}/goal-progress`),
+            api<GoalProgressPoint[]>(`${path}/goal-progress`),
           ])
           setGoals(goalData)
           setProgress(progressData)
@@ -154,6 +165,19 @@ function App() {
     () => students.filter((student) => `${student.first_name} ${student.last_name}`.toLowerCase().includes(search.toLowerCase())),
     [search, students],
   )
+  const chartData = useMemo(() => {
+    const points = new Map<string, Record<string, string | number>>()
+    for (const item of progress) {
+      const row = points.get(item.date) ?? {
+        date: new Date(item.date).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' }),
+      }
+      row[`goal-${item.goal_id}`] = item.rating
+      points.set(item.date, row)
+    }
+    return [...points.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([, row]) => row)
+  }, [progress])
 
   const login = async (email: string, password: string) => {
     try {
@@ -383,7 +407,27 @@ function App() {
                   <div className="space-y-3">{goals.map((goal) => <article key={goal.id} className="rounded-xl bg-sand p-3"><p className="font-semibold">{goal.description}</p><p className="mt-1 text-xs text-forest">{goal.area} · {goal.status}{goal.target_date ? ` · ${goal.target_date}` : ''}</p></article>)}{goals.length === 0 && <p className="text-sm text-slate-500">Registra el primer objetivo.</p>}</div>
                 </div>
                 <div className="panel p-5"><h3 className="mb-4 font-bold">Progreso a lo largo del tiempo</h3>
-                  {progress.length ? <div className="flex h-56 items-end gap-3 border-b border-l border-slate-200 px-4 pb-1">{progress.map((item, index) => <div key={`${item.goal_id}-${index}`} className="flex h-full flex-1 flex-col items-center justify-end gap-2"><span className="text-xs text-slate-500">{item.rating}/5</span><div className="w-full max-w-10 rounded-t-lg bg-forest" style={{ height: `${item.rating * 18}%` }} /><span className="text-[10px] text-slate-500">{new Date(item.date).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })}</span></div>)}</div> : <p className="text-sm text-slate-500">El gráfico aparecerá cuando las sesiones incluyan seguimiento.</p>}
+                  {progress.length ? <ResponsiveContainer width="100%" height={320}>
+                    <LineChart data={chartData} margin={{ top: 8, right: 12, bottom: 4, left: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                      <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+                      <YAxis domain={[1, 5]} ticks={[1, 2, 3, 4, 5]} width={28} />
+                      <Tooltip />
+                      <Legend />
+                      {goals.map((goal, index) => (
+                        <Line
+                          key={goal.id}
+                          type="monotone"
+                          dataKey={`goal-${goal.id}`}
+                          name={goal.description}
+                          stroke={['#24564d', '#dc8d56', '#5176a3', '#9a6bab', '#b06e58'][index % 5]}
+                          strokeWidth={2}
+                          connectNulls
+                          activeDot={{ r: 5 }}
+                        />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer> : <p className="text-sm text-slate-500">El gráfico aparecerá cuando las sesiones incluyan seguimiento.</p>}
                 </div>
               </div>}
               {tab === 'Sesiones' && <div className="space-y-4">
