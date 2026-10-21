@@ -3,11 +3,14 @@ from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 
 import httpx
+import jwt
+import pytest
 import respx
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from src.config import settings
 from src.database import Base, get_db
 from src.main import app, report_context
 from src.models import Student
@@ -219,6 +222,230 @@ def test_all_student_routes_enforce_ownership(tmp_path) -> None:
         )
         assert agenda.status_code == 200
         assert agenda.json() == []
+    finally:
+        app.dependency_overrides.clear()
+        engine.dispose()
+
+
+def test_auth_rejects_duplicate_email_wrong_password_expired_invalid_and_missing_token(
+    tmp_path,
+) -> None:
+    client, engine = client_for(tmp_path / "auth-cases.db")
+    try:
+        token = register(client, "educator@example.com")
+        duplicate = client.post(
+            "/api/auth/register",
+            json={
+                "email": "educator@example.com",
+                "password": "fictitious-pass-123",
+                "full_name": "Ada Prueba",
+            },
+        )
+        assert duplicate.status_code == 409
+        wrong_password = client.post(
+            "/api/auth/login",
+            json={"email": "educator@example.com", "password": "incorrecta"},
+        )
+        assert wrong_password.status_code == 401
+        assert client.get("/api/students").status_code == 401
+        assert (
+            client.get(
+                "/api/students", headers={"Authorization": "Bearer invalid-token"}
+            ).status_code
+            == 401
+        )
+
+        expired = jwt.encode(
+            {"sub": "1", "exp": datetime.now() - timedelta(minutes=1)},
+            settings.secret_key,
+            algorithm=settings.algorithm,
+        )
+        expired_response = client.get(
+            "/api/students", headers={"Authorization": f"Bearer {expired}"}
+        )
+        assert expired_response.status_code == 401
+        assert (
+            client.get("/api/students", headers={"Authorization": f"Bearer {token}"}).status_code
+            == 200
+        )
+    finally:
+        app.dependency_overrides.clear()
+        engine.dispose()
+
+
+def test_assessment_rating_area_and_report_date_validation(tmp_path) -> None:
+    client, engine = client_for(tmp_path / "validation.db")
+    try:
+        headers = {"Authorization": f"Bearer {register(client, 'validation@example.com')}"}
+        student_id = client.post("/api/students", json=student_payload(), headers=headers).json()[
+            "id"
+        ]
+        base = f"/api/students/{student_id}"
+        for score in (0, 6):
+            response = client.post(
+                f"{base}/assessments",
+                json={
+                    "assessed_at": "2025-01-01",
+                    "areas": [{"area": "lectura", "score": score}],
+                },
+                headers=headers,
+            )
+            assert response.status_code == 422
+        invalid_area = client.post(
+            f"{base}/assessments",
+            json={
+                "assessed_at": "2025-01-01",
+                "areas": [{"area": "inventada", "score": 3}],
+            },
+            headers=headers,
+        )
+        assert invalid_area.status_code == 422
+        goal_id = client.post(
+            f"{base}/goals",
+            json={"area": "lectura", "description": "Leer una frase."},
+            headers=headers,
+        ).json()["id"]
+        for rating in (0, 6):
+            response = client.post(
+                f"{base}/sessions",
+                json={
+                    "scheduled_at": "2025-01-01T10:00:00",
+                    "goal_progress": [{"goal_id": goal_id, "rating": rating}],
+                },
+                headers=headers,
+            )
+            assert response.status_code == 422
+        report = client.post(
+            f"{base}/reports",
+            json={"start_date": "2025-02-01", "end_date": "2025-01-01"},
+            headers=headers,
+        )
+        assert report.status_code == 422
+    finally:
+        app.dependency_overrides.clear()
+        engine.dispose()
+
+
+def test_agenda_filters_inclusive_date_range_and_archived_students_are_hidden(tmp_path) -> None:
+    client, engine = client_for(tmp_path / "agenda.db")
+    try:
+        headers = {"Authorization": f"Bearer {register(client, 'agenda@example.com')}"}
+        active_student = client.post(
+            "/api/students", json=student_payload(), headers=headers
+        ).json()
+        archived_payload = {**student_payload(), "first_name": "Inés", "archived": True}
+        archived_student = client.post(
+            "/api/students", json=archived_payload, headers=headers
+        ).json()
+        visible = client.get("/api/students", headers=headers).json()
+        assert [item["id"] for item in visible] == [active_student["id"]]
+        all_students = client.get("/api/students?include_archived=true", headers=headers).json()
+        assert {item["id"] for item in all_students} == {
+            active_student["id"],
+            archived_student["id"],
+        }
+
+        for student_id, scheduled_at in (
+            (active_student["id"], "2025-01-10T10:00:00"),
+            (active_student["id"], "2025-01-11T10:00:00"),
+            (archived_student["id"], "2025-01-10T11:00:00"),
+        ):
+            response = client.post(
+                f"/api/students/{student_id}/sessions",
+                json={"scheduled_at": scheduled_at},
+                headers=headers,
+            )
+            assert response.status_code == 201
+        agenda = client.get(
+            "/api/sessions",
+            params={"start": "2025-01-10T10:00:00", "end": "2025-01-10T10:00:00"},
+            headers=headers,
+        )
+        assert len(agenda.json()) == 1
+        assert agenda.json()[0]["student_first_name"] == "Lucía"
+    finally:
+        app.dependency_overrides.clear()
+        engine.dispose()
+
+
+@pytest.mark.parametrize("failure", ["timeout", "server", "malformed-json"])
+@respx.mock
+def test_adapter_failures_return_502_without_storing_material(
+    tmp_path, monkeypatch, failure
+) -> None:
+    from src.config import settings as app_settings
+
+    client, engine = client_for(tmp_path / f"adapter-{failure}.db")
+    monkeypatch.setattr(app_settings, "adapter_url", "https://adapter.example.test")
+    route = respx.post("https://adapter.example.test/api/adaptations")
+    if failure == "timeout":
+        route.mock(side_effect=httpx.ReadTimeout("upstream timed out"))
+    elif failure == "server":
+        route.mock(return_value=httpx.Response(503, text="unavailable"))
+    else:
+        route.mock(return_value=httpx.Response(200, text="{not-json"))
+    try:
+        headers = {"Authorization": f"Bearer {register(client, f'{failure}@example.com')}"}
+        student_id = client.post("/api/students", json=student_payload(), headers=headers).json()[
+            "id"
+        ]
+        material_id = client.post(
+            f"/api/students/{student_id}/materials",
+            json={"title": "Texto", "original_text": "Una frase sencilla."},
+            headers=headers,
+        ).json()["id"]
+        response = client.post(
+            f"/api/students/{student_id}/materials/{material_id}/adapt",
+            headers=headers,
+        )
+        assert response.status_code == 502
+        assert response.json()["detail"] == "Text adaptation service is unavailable"
+        stored = client.get(f"/api/students/{student_id}/materials", headers=headers).json()[0]
+        assert stored["adapted_text"] is None
+        assert stored["adaptation_id"] is None
+        assert stored["sentences"] == []
+    finally:
+        app.dependency_overrides.clear()
+        engine.dispose()
+
+
+def test_dashboard_summary_is_scoped_to_active_owned_data(tmp_path) -> None:
+    client, engine = client_for(tmp_path / "dashboard.db")
+    try:
+        headers = {"Authorization": f"Bearer {register(client, 'dashboard@example.com')}"}
+        student = client.post("/api/students", json=student_payload(), headers=headers).json()
+        goal = client.post(
+            f"/api/students/{student['id']}/goals",
+            json={"area": "lectura", "description": "Leer textos breves."},
+            headers=headers,
+        )
+        assert goal.status_code == 201
+        today = datetime.now().replace(microsecond=0)
+        session = client.post(
+            f"/api/students/{student['id']}/sessions",
+            json={"scheduled_at": today.isoformat()},
+            headers=headers,
+        )
+        assert session.status_code == 201
+        report = client.post(
+            f"/api/students/{student['id']}/reports",
+            json={
+                "start_date": today.date().isoformat(),
+                "end_date": today.date().isoformat(),
+                "body": "Resumen de prueba.",
+            },
+            headers=headers,
+        )
+        assert report.status_code == 201
+        summary = client.get("/api/dashboard", headers=headers)
+        assert summary.status_code == 200
+        payload = summary.json()
+        assert len(payload["today_sessions"]) == 1
+        assert len(payload["week_sessions"]) == 1
+        assert payload["active_goal_count"] == 1
+        assert payload["pending_consent_count"] == 1
+        assert payload["latest_reports"][0]["student_first_name"] == "Lucía"
+        assert client.get("/api/dashboard").status_code == 401
     finally:
         app.dependency_overrides.clear()
         engine.dispose()

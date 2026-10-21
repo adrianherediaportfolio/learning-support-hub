@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=83.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -26,8 +26,10 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "pytest>=8.3",
+  "pytest-cov>=6.0",
   "pytest-asyncio>=0.24",
   "respx>=0.21",
+  "pypdf>=5.0",
   "ruff>=0.6",
 ]
 

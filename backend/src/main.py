@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.config import settings
 from src.database import Base, engine
-from src.routers import auth, health, materials, reports, students
+from src.routers import auth, dashboard, health, materials, reports, students
 from src.services.reports import report_context
 
 Base.metadata.create_all(bind=engine)
@@ -17,6 +17,7 @@ app.add_middleware(
 )
 app.include_router(auth.router)
 app.include_router(health.router)
+app.include_router(dashboard.router)
 app.include_router(students.router)
 app.include_router(materials.router)
 app.include_router(reports.router)

@@ -28,4 +28,7 @@ async def request_adaptation(original_text: str) -> tuple[str, dict]:
             response.raise_for_status()
     except httpx.HTTPError as error:
         raise AdapterRequestError from error
-    return base_url, response.json()
+    try:
+        return base_url, response.json()
+    except (ValueError, UnicodeDecodeError) as error:
+        raise AdapterRequestError from error

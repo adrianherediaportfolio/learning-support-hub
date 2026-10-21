@@ -1,6 +1,7 @@
 import logging
 import re
 from datetime import date, datetime
+from unicodedata import normalize
 
 from openai import AsyncOpenAI
 from sqlalchemy import select
@@ -12,6 +13,24 @@ from src.models import Goal, SessionRecord, Student
 logger = logging.getLogger(__name__)
 EMAIL_PATTERN = re.compile(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}")
 PHONE_PATTERN = re.compile(r"(?<!\w)\+?\d[\d\s().-]{6,}\d(?!\w)")
+ACCENT_GROUPS = {
+    "a": "aáàâäãå",
+    "e": "eéèêë",
+    "i": "iíìîï",
+    "o": "oóòôöõ",
+    "u": "uúùûü",
+    "n": "nñ",
+    "c": "cç",
+}
+
+
+def _identifier_pattern(value: str) -> re.Pattern[str]:
+    parts = []
+    for character in value:
+        base = normalize("NFD", character).casefold()[0]
+        variants = ACCENT_GROUPS.get(base)
+        parts.append(f"[{re.escape(variants)}]" if variants else re.escape(character))
+    return re.compile("".join(parts), re.IGNORECASE)
 
 
 def scrub_sensitive_text(text: str, student: Student) -> str:
@@ -32,7 +51,7 @@ def scrub_sensitive_text(text: str, student: Student) -> str:
         reverse=True,
     )
     for value in values:
-        scrubbed = re.sub(re.escape(value), "[dato omitido]", scrubbed, flags=re.IGNORECASE)
+        scrubbed = _identifier_pattern(value).sub("[dato omitido]", scrubbed)
     scrubbed = EMAIL_PATTERN.sub("[dato omitido]", scrubbed)
     return PHONE_PATTERN.sub("[dato omitido]", scrubbed)
 
