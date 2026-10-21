@@ -1,0 +1,45 @@
+Copyright (c) 2026 Adrian Heredia Jimenez. All rights reserved.
+
+PROPRIETARY SOFTWARE LICENSE
+
+This repository and all of its contents (source code, documentation, designs,
+images and any other material, together "the Software") are the exclusive
+property of Adrian Heredia Jimenez ("the Author").
+
+The Software is published so that it can be viewed and evaluated. Publishing
+it does not grant any license or right to use it.
+
+1. Permitted
+   You may view and read the Software on GitHub for personal evaluation only.
+
+2. Not permitted without prior written permission from the Author
+   a) Using, running or deploying the Software, in whole or in part, for any
+      purpose, commercial or not.
+   b) Copying, reproducing, modifying, translating or creating derivative
+      works from the Software.
+   c) Distributing, publishing, sublicensing, selling, renting or otherwise
+      making the Software available to third parties.
+   d) Using the Software, or any part of it, to train or build other software,
+      products, services or machine learning models.
+   e) Removing or altering this notice or any copyright notice.
+
+3. Licenses and purchase
+   Commercial licenses, usage rights or the full transfer of the Software can
+   be granted by the Author on request. Any permission must be given in
+   writing and signed by the Author.
+   Contact: adrian.heredia.jimenez@gmail.com
+
+4. Third-party components
+   Third-party libraries used by the Software keep their own licenses. This
+   license only covers the original work of the Author.
+
+5. No warranty
+   The Software is provided "as is", without warranty of any kind. The Author
+   is not liable for any damage arising from its use.
+
+6. Termination
+   Any use outside these terms is unauthorized and automatically ends any
+   permission you may have received. The Author reserves all rights to take
+   legal action.
+
+This license is governed by the laws of Spain.

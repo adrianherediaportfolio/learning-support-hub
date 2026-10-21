@@ -1,0 +1,35 @@
+services:
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: sqlite:////app/data/learning_support.db
+      SECRET_KEY: ${SECRET_KEY:-replace-this-development-key-before-deployment}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      ADAPTER_URL: ${ADAPTER_URL:-}
+      ADAPTER_API_KEY: ${ADAPTER_API_KEY:-}
+      PRACTICE_NAME: ${PRACTICE_NAME:-Gabinete Pedagógico}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5174,http://127.0.0.1:5174,http://localhost:3001,http://127.0.0.1:3001}
+    ports:
+      - "8001:8000"
+    volumes:
+      - support_data:/app/data
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8001}
+    depends_on:
+      - backend
+    ports:
+      - "3001:80"
+
+# To run both projects, add this service under "services" and set ADAPTER_URL
+# on the backend to http://easy-read-adapter:8000:
+#  easy-read-adapter:
+#    build: ../easy-read-adapter
+#    ports:
+#      - "8002:8000"
+
+volumes:
+  support_data:

@@ -1,0 +1,336 @@
+from datetime import date, datetime, timedelta
+
+import httpx
+import respx
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from src.database import Base, get_db
+from src.main import app, report_context
+from src.models import Student
+
+
+def client_for(path):
+    engine = create_engine(f"sqlite:///{path}", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    def override_db():
+        database = factory()
+        try:
+            yield database
+        finally:
+            database.close()
+
+    app.dependency_overrides[get_db] = override_db
+    return TestClient(app), engine
+
+
+def register(client: TestClient, email: str) -> str:
+    response = client.post(
+        "/api/auth/register",
+        json={"email": email, "password": "fictitious-pass-123", "full_name": "Ana Demo"},
+    )
+    assert response.status_code == 201
+    return response.json()["access_token"]
+
+
+def student_payload() -> dict:
+    return {
+        "first_name": "Lucía",
+        "last_name": "Ejemplo",
+        "birth_date": "2015-04-12",
+        "school_year": "4º de Primaria",
+        "school": "CEIP Los Olivos",
+        "guardian_name": "María Ejemplo",
+        "guardian_email": "familia@example.com",
+        "guardian_phone": "600000001",
+        "notes": "Datos ficticios para pruebas.",
+        "consent_signed_at": None,
+        "archived": False,
+    }
+
+
+def test_registration_login_and_student_ownership(tmp_path) -> None:
+    client, engine = client_for(tmp_path / "auth.db")
+    try:
+        first_token = register(client, "ana@example.com")
+        second_token = register(client, "luis@example.com")
+        owner_headers = {"Authorization": f"Bearer {first_token}"}
+        other_headers = {"Authorization": f"Bearer {second_token}"}
+
+        created = client.post("/api/students", json=student_payload(), headers=owner_headers)
+        assert created.status_code == 201
+        student_id = created.json()["id"]
+        assert client.get(f"/api/students/{student_id}", headers=owner_headers).status_code == 200
+        assert client.get(f"/api/students/{student_id}", headers=other_headers).status_code == 404
+        assert client.get("/api/students").status_code == 401
+
+        login_response = client.post(
+            "/api/auth/login",
+            json={"email": "ana@example.com", "password": "fictitious-pass-123"},
+        )
+        assert login_response.status_code == 200
+    finally:
+        app.dependency_overrides.clear()
+        engine.dispose()
+
+
+def test_private_report_context_excludes_identifiers(tmp_path) -> None:
+    client, engine = client_for(tmp_path / "privacy.db")
+    try:
+        token = register(client, "pedagogue@example.com")
+        headers = {"Authorization": f"Bearer {token}"}
+        created = client.post("/api/students", json=student_payload(), headers=headers)
+        student_id = created.json()["id"]
+        with next(app.dependency_overrides[get_db]()) as database:
+            student = database.get(Student, student_id)
+            context = report_context(database, student, date(2025, 1, 1), date(2025, 12, 31))
+        assert context == {"first_name": "Lucía", "goals": [], "sessions": []}
+        assert "last_name" not in context
+        assert "guardian_email" not in context
+        assert "school" not in context
+    finally:
+        app.dependency_overrides.clear()
+        engine.dispose()
+
+
+@respx.mock
+def test_material_adapter_sends_contract_and_stores_response(tmp_path, monkeypatch) -> None:
+    from src.config import settings
+
+    client, engine = client_for(tmp_path / "materials.db")
+    monkeypatch.setattr(settings, "adapter_url", "https://adapter.example.test/")
+    monkeypatch.setattr(settings, "adapter_api_key", "shared-key")
+    route = respx.post("https://adapter.example.test/api/adaptations").mock(
+        return_value=httpx.Response(
+            201,
+            json={
+                "id": "adapt-1",
+                "adapted_text": "La niña lee.",
+                "sentences": [{"text": "La niña lee.", "pictograms": []}],
+                "attribution": "Atribución de prueba.",
+            },
+        )
+    )
+    try:
+        token = register(client, "educator@example.com")
+        headers = {"Authorization": f"Bearer {token}"}
+        student_id = client.post("/api/students", json=student_payload(), headers=headers).json()[
+            "id"
+        ]
+        material_id = client.post(
+            f"/api/students/{student_id}/materials",
+            json={"title": "Lectura de prueba", "original_text": "La niña lee un cuento."},
+            headers=headers,
+        ).json()["id"]
+        response = client.post(
+            f"/api/students/{student_id}/materials/{material_id}/adapt",
+            headers=headers,
+        )
+        assert response.status_code == 200
+        assert response.json()["adapted_text"] == "La niña lee."
+        assert response.json()["adaptation_id"] == "adapt-1"
+        assert response.json()["sentences"][0]["text"] == "La niña lee."
+        request = route.calls[0].request
+        assert request.headers["X-API-Key"] == "shared-key"
+        assert request.read() == (
+            b'{"text":"La ni\xc3\xb1a lee un cuento.","level":"lectura_facil",'
+            b'"pictograms":true,"source":"learning-support-hub"}'
+        )
+    finally:
+        app.dependency_overrides.clear()
+        engine.dispose()
+
+
+def test_adapter_disabled_returns_503(tmp_path, monkeypatch) -> None:
+    from src.config import settings
+
+    client, engine = client_for(tmp_path / "disabled.db")
+    monkeypatch.setattr(settings, "adapter_url", "")
+    try:
+        token = register(client, "staff@example.com")
+        headers = {"Authorization": f"Bearer {token}"}
+        student_id = client.post("/api/students", json=student_payload(), headers=headers).json()[
+            "id"
+        ]
+        material_id = client.post(
+            f"/api/students/{student_id}/materials",
+            json={"title": "Texto", "original_text": "Una frase."},
+            headers=headers,
+        ).json()["id"]
+        response = client.post(
+            f"/api/students/{student_id}/materials/{material_id}/adapt",
+            headers=headers,
+        )
+        assert response.status_code == 503
+    finally:
+        app.dependency_overrides.clear()
+        engine.dispose()
+
+
+def test_all_student_routes_enforce_ownership(tmp_path) -> None:
+    client, engine = client_for(tmp_path / "ownership.db")
+    try:
+        owner_headers = {"Authorization": f"Bearer {register(client, 'owner@example.com')}"}
+        other_headers = {"Authorization": f"Bearer {register(client, 'other@example.com')}"}
+        student_id = client.post(
+            "/api/students", json=student_payload(), headers=owner_headers
+        ).json()["id"]
+        base = f"/api/students/{student_id}"
+        routes = [
+            ("GET", base, None),
+            ("PATCH", base, student_payload()),
+            ("GET", f"{base}/assessments", None),
+            (
+                "POST",
+                f"{base}/assessments",
+                {
+                    "assessed_at": "2025-01-01",
+                    "areas": [
+                        {"area": "lectura", "score": 3, "observations": "Prueba."},
+                    ],
+                },
+            ),
+            ("GET", f"{base}/goals", None),
+            ("POST", f"{base}/goals", {"area": "lectura", "description": "Leer un texto breve."}),
+            ("GET", f"{base}/goal-progress", None),
+            ("GET", f"{base}/sessions", None),
+            ("POST", f"{base}/sessions", {"scheduled_at": "2025-01-01T10:00:00"}),
+            ("GET", f"{base}/materials", None),
+            ("POST", f"{base}/materials", {"title": "Lectura", "original_text": "Una frase."}),
+            ("POST", f"{base}/materials/1/adapt", None),
+            ("GET", f"{base}/reports", None),
+            ("POST", f"{base}/reports", {"start_date": "2025-01-01", "end_date": "2025-01-31"}),
+            ("PUT", f"{base}/reports/1", {"start_date": "2025-01-01", "end_date": "2025-01-31"}),
+            ("GET", f"{base}/reports/1/pdf", None),
+        ]
+        for method, path, payload in routes:
+            response = client.request(method, path, json=payload, headers=other_headers)
+            assert response.status_code == 404, f"{method} {path}: {response.text}"
+
+        agenda = client.get(
+            "/api/sessions?start=2025-01-01T00%3A00%3A00&end=2025-01-31T23%3A59%3A59",
+            headers=other_headers,
+        )
+        assert agenda.status_code == 200
+        assert agenda.json() == []
+    finally:
+        app.dependency_overrides.clear()
+        engine.dispose()
+
+
+def test_report_fallback_is_editable_and_pdf_downloads(tmp_path, monkeypatch) -> None:
+    from src.config import settings
+
+    client, engine = client_for(tmp_path / "reports.db")
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    monkeypatch.setattr(settings, "practice_name", "Gabinete de Prueba")
+    try:
+        token = register(client, "reports@example.com")
+        headers = {"Authorization": f"Bearer {token}"}
+        student_id = client.post("/api/students", json=student_payload(), headers=headers).json()[
+            "id"
+        ]
+        client.post(
+            f"/api/students/{student_id}/goals",
+            json={"area": "lectura", "description": "Practicar lectura compartida."},
+            headers=headers,
+        )
+        created = client.post(
+            f"/api/students/{student_id}/reports",
+            json={"start_date": "2025-01-01", "end_date": "2025-12-31"},
+            headers=headers,
+        )
+        assert created.status_code == 201
+        report = created.json()
+        assert "Lucía" in report["body"]
+        assert "Practicar lectura compartida" in report["body"]
+        assert "Ejemplo" not in report["body"]
+        saved = client.put(
+            f"/api/students/{student_id}/reports/{report['id']}",
+            json={
+                "start_date": "2025-01-01",
+                "end_date": "2025-12-31",
+                "body": "Informe revisado para la familia.",
+            },
+            headers=headers,
+        )
+        assert saved.json()["body"] == "Informe revisado para la familia."
+        pdf = client.get(
+            f"/api/students/{student_id}/reports/{report['id']}/pdf",
+            headers=headers,
+        )
+        assert pdf.status_code == 200
+        assert pdf.headers["content-type"] == "application/pdf"
+        assert pdf.content.startswith(b"%PDF")
+        assert b"Gabinete de Prueba" in pdf.content
+    finally:
+        app.dependency_overrides.clear()
+        engine.dispose()
+
+
+def test_assessments_goals_session_progress_and_agenda(tmp_path) -> None:
+    client, engine = client_for(tmp_path / "case-management.db")
+    try:
+        token = register(client, "case@example.com")
+        headers = {"Authorization": f"Bearer {token}"}
+        student_id = client.post("/api/students", json=student_payload(), headers=headers).json()[
+            "id"
+        ]
+        base = f"/api/students/{student_id}"
+
+        assessment = client.post(
+            f"{base}/assessments",
+            json={
+                "assessed_at": "2025-02-01",
+                "areas": [{"area": "lectura", "score": 3, "observations": "Lee frases."}],
+            },
+            headers=headers,
+        )
+        assert assessment.status_code == 201
+        assert assessment.json()["areas"][0]["score"] == 3
+
+        goal = client.post(
+            f"{base}/goals",
+            json={
+                "area": "lectura",
+                "description": "Leer un párrafo breve.",
+                "target_date": "2025-06-01",
+            },
+            headers=headers,
+        )
+        goal_id = goal.json()["id"]
+        scheduled_at = datetime.now().replace(microsecond=0)
+        session = client.post(
+            f"{base}/sessions",
+            json={
+                "scheduled_at": scheduled_at.isoformat(),
+                "duration_min": 45,
+                "status": "realizada",
+                "notes": "Práctica de lectura.",
+                "goal_progress": [{"goal_id": goal_id, "rating": 4, "comment": "Avance positivo."}],
+            },
+            headers=headers,
+        )
+        assert session.status_code == 201
+        assert session.json()["goal_progress"][0]["rating"] == 4
+
+        progress = client.get(f"{base}/goal-progress", headers=headers)
+        assert progress.status_code == 200
+        assert progress.json()[0]["goal_id"] == goal_id
+        assert progress.json()[0]["rating"] == 4
+        agenda = client.get(
+            "/api/sessions",
+            params={
+                "start": (scheduled_at - timedelta(days=1)).isoformat(),
+                "end": (scheduled_at + timedelta(days=1)).isoformat(),
+            },
+            headers=headers,
+        )
+        assert agenda.status_code == 200
+        assert agenda.json()[0]["student_first_name"] == "Lucía"
+    finally:
+        app.dependency_overrides.clear()
+        engine.dispose()

@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { font-family: Inter, ui-sans-serif, system-ui, sans-serif; color: #20312d; background: #f6f5f0; font-synthesis: none; }
+body { margin: 0; min-width: 320px; min-height: 100vh; }
+button, input, textarea, select { font: inherit; }
+.panel { @apply rounded-2xl border border-slate-200 bg-white shadow-sm; }
+.field { @apply w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-forest focus:ring-2 focus:ring-forest/10; }
+.field-label { @apply mb-2 block text-sm font-semibold; }
+.button-primary { @apply inline-flex items-center justify-center gap-2 rounded-xl bg-forest px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#1b3b34] disabled:opacity-50; }
+.button-secondary { @apply inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-forest transition hover:bg-sage; }
+.icon-button { @apply grid h-10 w-10 place-items-center rounded-xl bg-sage text-forest transition hover:bg-[#d4e5da]; }
+.nav-link { @apply inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-sand hover:text-forest; }
+.student-item { @apply flex w-full items-center gap-3 rounded-xl p-3 text-sm text-slate-600 transition hover:bg-sand; }
+.student-item-active { @apply bg-sage text-forest; }
+.avatar { @apply grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#dce9df] text-sm font-bold text-forest; }
+.tab-button { @apply whitespace-nowrap border-b-2 border-transparent px-4 py-3 text-sm font-semibold text-slate-500 hover:text-forest; }
+.tab-button-active { @apply border-forest text-forest; }
+.report-item { @apply flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-slate-600 hover:bg-sand; }
+.report-item-active { @apply bg-sage text-forest; }
+.metric-card { @apply flex flex-col gap-2 rounded-xl bg-sand p-4 text-sm; }
+.metric-card strong { @apply text-xl text-ink; }
+.metric-card span { @apply text-xs text-slate-500; }
